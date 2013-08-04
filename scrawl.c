@@ -157,7 +157,8 @@ enum Filters {
    FILTER_TEXT,
    FILTER_CLIPINFO,
    FILTER_COREINFO,
-   FILTER_FRAMENUM
+   FILTER_FRAMENUM,
+   FILTER_FRAMEPROPS
 };
 
 
@@ -188,6 +189,62 @@ static const VSFrameRef *VS_CC scrawlGetFrame(int n, int activationReason, void 
       if (d->filter == FILTER_FRAMENUM) {
          char *text = malloc(20);
          sprintf(text, "%d", n);
+         scrawl_text(text, dst, vsapi);
+         free(text);
+      } else if (d->filter == FILTER_FRAMEPROPS) {
+         const VSMap *props = vsapi->getFramePropsRO(src);
+         int numKeys = vsapi->propNumKeys(props);
+         int i;
+         char *text = malloc(numKeys * 1024);
+         sprintf(text, "%s\n", "Frame properties:");
+
+         for (i = 0; i < numKeys; i++) {
+            const char *key = vsapi->propGetKey(props, i);
+            char type = vsapi->propGetType(props, key);
+            int numElements = vsapi->propNumElements(props, key);
+            int idx;
+            // Buffer overruns only happen to other programs.
+            char *prop = malloc(1024);
+            strcpy(prop, key);
+            strcat(prop, ": ");
+            // "<key>: <val0> <val1> <val2> ... <valn-1>"
+            if (type == ptInt) {
+               for (idx = 0; idx < numElements; idx++) {
+                  char tmp[25];
+                  int64_t value = vsapi->propGetInt(props, key, idx, NULL);
+                  sprintf(tmp, "%ld", value);
+                  strcat(prop, tmp);
+                  if (idx < numElements-1) {
+                     strcat(prop, " ");
+                  }
+               }
+            } else if (type == ptFloat) {
+               for (idx = 0; idx < numElements; idx++) {
+                  char tmp[32]; // 25 + 6 decimal places + separator
+                  double value = vsapi->propGetFloat(props, key, idx, NULL);
+                  sprintf(tmp, "%.6f", value);
+                  strcat(prop, tmp);
+                  if (idx < numElements-1) {
+                     strcat(prop, " ");
+                  }
+               }
+            } else if (type == ptData) {
+               for (idx = 0; idx < numElements; idx++) {
+                  const char *value = vsapi->propGetData(props, key, idx, NULL);
+                  int size = vsapi->propGetDataSize(props, key, idx, NULL);
+                  // pretend it's a C "string" even though it may not be.
+                  strncat(prop, value, size);
+                  if (idx < numElements-1) {
+                     strcat(prop, " ");
+                  }
+               }
+            }
+
+            strcat(text, prop);
+            strcat(text, "\n");
+            free(prop);
+         }
+
          scrawl_text(text, dst, vsapi);
          free(text);
       } else {
@@ -325,6 +382,23 @@ static void VS_CC framenumCreate(const VSMap *in, VSMap *out, void *userData, VS
 }
 
 
+static void VS_CC framepropsCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, const VSAPI *vsapi) {
+   ScrawlData d;
+   ScrawlData *data;
+
+   d.node = vsapi->propGetNode(in, "clip", 0, 0);
+   d.vi = vsapi->getVideoInfo(d.node);
+
+   d.filter = FILTER_FRAMEPROPS;
+
+   data = malloc(sizeof(d));
+   *data = d;
+
+   vsapi->createFilter(in, out, "FrameProps", scrawlInit, scrawlGetFrame, scrawlFree, fmParallel, 0, data, core);
+   return;
+}
+
+
 VS_EXTERNAL_API(void) VapourSynthPluginInit(VSConfigPlugin configFunc, VSRegisterFunction registerFunc, VSPlugin *plugin) {
    configFunc("com.nodame.scrawl", "scrawl", "Simple text output plugin for VapourSynth", VAPOURSYNTH_API_VERSION, 1, plugin);
    registerFunc("Text",
@@ -340,4 +414,7 @@ VS_EXTERNAL_API(void) VapourSynthPluginInit(VSConfigPlugin configFunc, VSRegiste
    registerFunc("FrameNum",
                 "clip:clip;",
                 framenumCreate, 0, plugin);
+   registerFunc("FrameProps",
+                "clip:clip;",
+                framepropsCreate, 0, plugin);
 }
