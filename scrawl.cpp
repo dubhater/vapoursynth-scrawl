@@ -419,7 +419,7 @@ static void VS_CC coreinfoCreate(const VSMap *in, VSMap *out, void *userData, VS
    d.text.append(ci->versionString).append("\n");
    d.text.append("Threads: ").append(std::to_string(ci->numThreads)).append("\n");
    d.text.append("Maximum framebuffer cache size: ").append(std::to_string(ci->maxFramebufferSize)).append(" bytes\n");
-   d.text.append("Used ramebuffer cache size: ").append(std::to_string(ci->usedFramebufferSize)).append(" bytes");
+   d.text.append("Used framebuffer cache size: ").append(std::to_string(ci->usedFramebufferSize)).append(" bytes");
 
    int err;
    d.alignment = vsapi->propGetInt(in, "alignment", 0, &err);
