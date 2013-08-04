@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <cstring>
 
+#include <list>
 #include <string>
 
 #include <vapoursynth/VapourSynth.h>
@@ -49,108 +50,175 @@ static inline void vs_memset16(void *ptr, int value, size_t num) {
 }
 
 
-void scrawl_text(const char *text, VSFrameRef *frame, const VSAPI *vsapi) {
-   const VSFormat *frame_format = vsapi->getFrameFormat(frame);
-   int width = vsapi->getFrameWidth(frame, 0);
-   int height = vsapi->getFrameHeight(frame, 0);
-
-   int start_x = 16;
-   int start_y = 16;
-
-   int characters_scrawled = 0;
-   int plane, i;
-
-   int txt_length = strlen(text);
-   unsigned char *txt = (unsigned char *)malloc(txt_length);
-   memcpy(txt, text, txt_length);
-
-   for (i = 0; i < txt_length; i++) {
-      int dest_x = start_x + characters_scrawled * character_width;
-      int dest_y = start_y;
-
+void sanitise_text(std::string& txt) {
+   for (int i = 0; txt[i]; i++) {
       if (txt[i] == '\r') {
-         // Pretend \r doesn't exist.
-         continue;
+        if (txt[i+1] == '\n') {
+           txt.erase(i, 1);
+        } else {
+           txt[i] = '\n';
+        }
+        continue;
       }
 
       if (txt[i] == '\n') {
-         // Must draw on a new line in the next iteration,
-         start_y += character_height;
-         characters_scrawled = 0;
          continue;
-      }
-
-      if (dest_x >= (width - character_width - 16)) {
-         // Must draw on a new line in this iteration.
-         dest_x = start_x;
-         dest_y += character_height;
-         start_y += character_height;
-         characters_scrawled = 0;
-      }
-
-      if (dest_y >= (height - character_height)) {
-         // There is no room for this line.
-         return;
       }
 
       // Must adjust the character code because of the five characters
       // missing from the font.
-      if (txt[i] < 32 ||
-          txt[i] == 129 ||
-          txt[i] == 141 ||
-          txt[i] == 143 ||
-          txt[i] == 144 ||
-          txt[i] == 157) {
+      if ((unsigned char)txt[i] < 32 ||
+          (unsigned char)txt[i] == 129 ||
+          (unsigned char)txt[i] == 141 ||
+          (unsigned char)txt[i] == 143 ||
+          (unsigned char)txt[i] == 144 ||
+          (unsigned char)txt[i] == 157) {
          txt[i] = '_';
+         continue;
       }
 
-      if (txt[i] > 157) {
-         txt[i] -= 5;
-      } else if (txt[i] > 144) {
-         txt[i] -= 4;
-      } else if (txt[i] > 141) {
-         txt[i] -= 2;
-      } else if (txt[i] > 129) {
-         txt[i] -= 1;
+      // Ugly! Ugly! UGLY!
+      if ((unsigned char)txt[i] > 157) {
+         txt[i] = (char)((unsigned char)txt[i] - 5);
+      } else if ((unsigned char)txt[i] > 144) {
+         txt[i] = (char)((unsigned char)txt[i] - 4);
+      } else if ((unsigned char)txt[i] > 141) {
+         txt[i] = (char)((unsigned char)txt[i] - 2);
+      } else if ((unsigned char)txt[i] > 129) {
+         txt[i] = (char)((unsigned char)txt[i] - 1);
       }
-      
-
-      if (frame_format->colorFamily == cmRGB) {
-         for (plane = 0; plane < frame_format->numPlanes; plane++) {
-            uint8_t *image = vsapi->getWritePtr(frame, plane);
-            int stride = vsapi->getStride(frame, plane);
-
-            scrawl_character(txt[i], image, stride, dest_x, dest_y, frame_format->bitsPerSample);
-         }
-      } else {
-         for (plane = 0; plane < frame_format->numPlanes; plane++) {
-            uint8_t *image = vsapi->getWritePtr(frame, plane);
-            int stride = vsapi->getStride(frame, plane);
-
-            if (plane == 0) {
-               scrawl_character(txt[i], image, stride, dest_x, dest_y, frame_format->bitsPerSample);
-            } else {
-               int sub_w = character_width  >> frame_format->subSamplingW;
-               int sub_h = character_height >> frame_format->subSamplingH;
-               int sub_dest_x = dest_x >> frame_format->subSamplingW;
-               int sub_dest_y = dest_y >> frame_format->subSamplingH;
-               int y;
-
-               if (frame_format->bitsPerSample == 8) {
-                  for (y = 0; y < sub_h; y++) {
-                     memset(image + (y+sub_dest_y)*stride + sub_dest_x, 128, sub_w);
-                  }
-               } else {
-                  for (y = 0; y < sub_h; y++) {
-                     vs_memset16((uint16_t*)image + (y+sub_dest_y)*stride/2 + sub_dest_x, 128 << (frame_format->bitsPerSample - 8), sub_w);
-                  }
-               }
-            }
-         }
-      }
-      characters_scrawled++;
    }
-   free(txt);
+}
+
+
+std::list<std::string> split_text(const std::string& txt, int width, int height) {
+   std::list<std::string> lines;
+
+   // First split by \n
+   int prev_pos = -1;
+   for (int i = 0; i < (int)txt.size(); i++) {
+      if (txt[i] == '\n') {
+         //if (i > 0 && i - prev_pos > 1) { // No empty lines allowed
+            lines.push_back(txt.substr(prev_pos + 1, i - prev_pos - 1));
+         //}
+         prev_pos = i;
+      }
+   }
+   lines.push_back(txt.substr(prev_pos + 1));
+
+   // Then split any lines that don't fit
+   int horizontal_capacity = width / character_width;
+   std::list<std::string>::iterator iter;
+   for (iter = lines.begin(); iter != lines.end(); iter++) {
+      if ((int)(*iter).size() > horizontal_capacity) {
+         lines.insert(std::next(iter), (*iter).substr(horizontal_capacity));
+         (*iter).erase(horizontal_capacity);
+      }
+   }
+
+   // Also drop lines that would go over the frame's bottom edge
+   int vertical_capacity = height / character_height;
+   if ((int)lines.size() > vertical_capacity) {
+      lines.resize(vertical_capacity);
+   }
+
+   return lines;
+}
+
+
+void scrawl_text(std::string txt, int alignment, VSFrameRef *frame, const VSAPI *vsapi) {
+   const VSFormat *frame_format = vsapi->getFrameFormat(frame);
+   int width = vsapi->getFrameWidth(frame, 0);
+   int height = vsapi->getFrameHeight(frame, 0);
+
+   const int margin_h = 16;
+   const int margin_v = 16;
+
+   sanitise_text(txt);
+
+   std::list<std::string> lines = split_text(txt, width - margin_h*2, height - margin_v*2);
+
+   int start_x;
+   int start_y;
+
+   switch (alignment) {
+      case 7:
+      case 8:
+      case 9:
+         start_y = margin_v;
+         break;
+      case 4:
+      case 5:
+      case 6:
+         start_y = (height - lines.size()*character_height) / 2;
+         break;
+      case 1:
+      case 2:
+      case 3:
+         start_y = height - lines.size()*character_height - margin_v;
+         break;
+   }
+
+   std::list<std::string>::const_iterator iter;
+   for (iter = lines.begin(); iter != lines.end(); iter++) {
+      switch (alignment) {
+         case 1:
+         case 4:
+         case 7:
+            start_x = margin_h;
+            break;
+         case 2:
+         case 5:
+         case 8:
+            start_x = (width - (*iter).size()*character_width) / 2;
+            break;
+         case 3:
+         case 6:
+         case 9:
+            start_x = width - (*iter).size()*character_width - margin_h;
+            break;
+      }
+
+      for (unsigned int i = 0; i < (*iter).size(); i++) {
+         int dest_x = start_x + i*character_width;
+         int dest_y = start_y;
+
+         if (frame_format->colorFamily == cmRGB) {
+            for (int plane = 0; plane < frame_format->numPlanes; plane++) {
+               uint8_t *image = vsapi->getWritePtr(frame, plane);
+               int stride = vsapi->getStride(frame, plane);
+
+               scrawl_character((*iter)[i], image, stride, dest_x, dest_y, frame_format->bitsPerSample);
+            }
+         } else {
+            for (int plane = 0; plane < frame_format->numPlanes; plane++) {
+               uint8_t *image = vsapi->getWritePtr(frame, plane);
+               int stride = vsapi->getStride(frame, plane);
+
+               if (plane == 0) {
+                  scrawl_character((*iter)[i], image, stride, dest_x, dest_y, frame_format->bitsPerSample);
+               } else {
+                  int sub_w = character_width  >> frame_format->subSamplingW;
+                  int sub_h = character_height >> frame_format->subSamplingH;
+                  int sub_dest_x = dest_x >> frame_format->subSamplingW;
+                  int sub_dest_y = dest_y >> frame_format->subSamplingH;
+                  int y;
+
+                  if (frame_format->bitsPerSample == 8) {
+                     for (y = 0; y < sub_h; y++) {
+                        memset(image + (y+sub_dest_y)*stride + sub_dest_x, 128, sub_w);
+                     }
+                  } else {
+                     for (y = 0; y < sub_h; y++) {
+                        vs_memset16((uint16_t*)image + (y+sub_dest_y)*stride/2 + sub_dest_x, 128 << (frame_format->bitsPerSample - 8), sub_w);
+                     }
+                  }
+               } // if plane
+            } // for plane in planes
+         } // if colorFamily
+      } // for i in line
+      start_y += character_height;
+   } // for iter in lines
 }
 
 
@@ -168,6 +236,7 @@ typedef struct {
    const VSVideoInfo *vi;
 
    std::string text;
+   int alignment;
    Filters filter;
 } ScrawlData;
 
@@ -188,7 +257,7 @@ static const VSFrameRef *VS_CC scrawlGetFrame(int n, int activationReason, void 
       VSFrameRef *dst = vsapi->copyFrame(src, core);
 
       if (d->filter == FILTER_FRAMENUM) {
-         scrawl_text(std::to_string(n).c_str(), dst, vsapi);
+         scrawl_text(std::to_string(n), d->alignment, dst, vsapi);
       } else if (d->filter == FILTER_FRAMEPROPS) {
          const VSMap *props = vsapi->getFramePropsRO(src);
          int numKeys = vsapi->propNumKeys(props);
@@ -236,9 +305,9 @@ static const VSFrameRef *VS_CC scrawlGetFrame(int n, int activationReason, void 
             text.append("\n");
          }
 
-         scrawl_text(text.c_str(), dst, vsapi);
+         scrawl_text(text, d->alignment, dst, vsapi);
       } else {
-         scrawl_text(d->text.c_str(), dst, vsapi);
+         scrawl_text(d->text, d->alignment, dst, vsapi);
       }
 
       vsapi->freeFrame(src);
@@ -269,6 +338,18 @@ static void VS_CC textCreate(const VSMap *in, VSMap *out, void *userData, VSCore
 
    d.text = vsapi->propGetData(in, "text", 0, 0);
 
+   int err;
+   d.alignment = vsapi->propGetInt(in, "alignment", 0, &err);
+   if (err) {
+      d.alignment = 7; // top left
+   }
+
+   if (d.alignment < 1 || d.alignment > 9) {
+      vsapi->setError(out, "Text: alignment must be between 1 and 9 (think numpad)");
+      vsapi->freeNode(d.node);
+      return;
+   }
+
    data = new ScrawlData();
    *data = d;
 
@@ -288,7 +369,7 @@ static void VS_CC clipinfoCreate(const VSMap *in, VSMap *out, void *userData, VS
 
    if (isConstantFormat(d.vi)) {
       d.text.append("Clip info:\n");
-      d.text.append("Width:  ").append(std::to_string(d.vi->width)).append(" px\n");
+      d.text.append("Width: ").append(std::to_string(d.vi->width)).append(" px\n");
       d.text.append("Height: ").append(std::to_string(d.vi->height)).append(" px\n");
       d.text.append("Length: ").append(std::to_string(d.vi->numFrames)).append(" px\n");
       d.text.append("FpsNum: ").append(std::to_string(d.vi->fpsNum)).append("\n");
@@ -296,12 +377,24 @@ static void VS_CC clipinfoCreate(const VSMap *in, VSMap *out, void *userData, VS
       d.text.append("Format: ").append(d.vi->format->name);
    } else {
       d.text.append("Clip info:\n");
-      d.text.append("Width:  may vary\n");
+      d.text.append("Width: may vary\n");
       d.text.append("Height: may vary\n");
       d.text.append("Length: ").append(std::to_string(d.vi->numFrames)).append(" px\n");
       d.text.append("FpsNum: ").append(std::to_string(d.vi->fpsNum)).append("\n");
       d.text.append("FpsDen: ").append(std::to_string(d.vi->fpsDen)).append("\n");
       d.text.append("Format: may vary");
+   }
+
+   int err;
+   d.alignment = vsapi->propGetInt(in, "alignment", 0, &err);
+   if (err) {
+      d.alignment = 7; // top left
+   }
+
+   if (d.alignment < 1 || d.alignment > 9) {
+      vsapi->setError(out, "ClipInfo: alignment must be between 1 and 9 (think numpad)");
+      vsapi->freeNode(d.node);
+      return;
    }
 
    data = new ScrawlData();
@@ -328,6 +421,18 @@ static void VS_CC coreinfoCreate(const VSMap *in, VSMap *out, void *userData, VS
    d.text.append("Maximum framebuffer cache size: ").append(std::to_string(ci->maxFramebufferSize)).append(" bytes\n");
    d.text.append("Used ramebuffer cache size: ").append(std::to_string(ci->usedFramebufferSize)).append(" bytes");
 
+   int err;
+   d.alignment = vsapi->propGetInt(in, "alignment", 0, &err);
+   if (err) {
+      d.alignment = 7; // top left
+   }
+
+   if (d.alignment < 1 || d.alignment > 9) {
+      vsapi->setError(out, "CoreInfo: alignment must be between 1 and 9 (think numpad)");
+      vsapi->freeNode(d.node);
+      return;
+   }
+
    data = new ScrawlData();
    *data = d;
 
@@ -344,6 +449,18 @@ static void VS_CC framenumCreate(const VSMap *in, VSMap *out, void *userData, VS
    d.vi = vsapi->getVideoInfo(d.node);
 
    d.filter = FILTER_FRAMENUM;
+
+   int err;
+   d.alignment = vsapi->propGetInt(in, "alignment", 0, &err);
+   if (err) {
+      d.alignment = 7; // top left
+   }
+
+   if (d.alignment < 1 || d.alignment > 9) {
+      vsapi->setError(out, "FrameNum: alignment must be between 1 and 9 (think numpad)");
+      vsapi->freeNode(d.node);
+      return;
+   }
 
    data = new ScrawlData();
    *data = d;
@@ -362,6 +479,18 @@ static void VS_CC framepropsCreate(const VSMap *in, VSMap *out, void *userData, 
 
    d.filter = FILTER_FRAMEPROPS;
 
+   int err;
+   d.alignment = vsapi->propGetInt(in, "alignment", 0, &err);
+   if (err) {
+      d.alignment = 7; // top left
+   }
+
+   if (d.alignment < 1 || d.alignment > 9) {
+      vsapi->setError(out, "FrameProps: alignment must be between 1 and 9 (think numpad)");
+      vsapi->freeNode(d.node);
+      return;
+   }
+
    data = new ScrawlData();
    *data = d;
 
@@ -374,18 +503,23 @@ VS_EXTERNAL_API(void) VapourSynthPluginInit(VSConfigPlugin configFunc, VSRegiste
    configFunc("com.nodame.scrawl", "scrawl", "Simple text output plugin for VapourSynth", VAPOURSYNTH_API_VERSION, 1, plugin);
    registerFunc("Text",
                 "clip:clip;"
-                "text:data;",
+                "text:data;"
+                "alignment:int:opt;",
                 textCreate, 0, plugin);
    registerFunc("ClipInfo",
-                "clip:clip;",
+                "clip:clip;"
+                "alignment:int:opt;",
                 clipinfoCreate, 0, plugin);
    registerFunc("CoreInfo",
-                "clip:clip;",
+                "clip:clip;"
+                "alignment:int:opt;",
                 coreinfoCreate, 0, plugin);
    registerFunc("FrameNum",
-                "clip:clip;",
+                "clip:clip;"
+                "alignment:int:opt;",
                 framenumCreate, 0, plugin);
    registerFunc("FrameProps",
-                "clip:clip;",
+                "clip:clip;"
+                "alignment:int:opt;",
                 framepropsCreate, 0, plugin);
 }
