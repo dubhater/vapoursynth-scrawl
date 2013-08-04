@@ -1,7 +1,8 @@
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
+
+#include <string>
 
 #include <vapoursynth/VapourSynth.h>
 #include <vapoursynth/VSHelper.h>
@@ -60,7 +61,7 @@ void scrawl_text(const char *text, VSFrameRef *frame, const VSAPI *vsapi) {
    int plane, i;
 
    int txt_length = strlen(text);
-   unsigned char *txt = malloc(txt_length);
+   unsigned char *txt = (unsigned char *)malloc(txt_length);
    memcpy(txt, text, txt_length);
 
    for (i = 0; i < txt_length; i++) {
@@ -166,8 +167,8 @@ typedef struct {
    VSNodeRef *node;
    const VSVideoInfo *vi;
 
-   char *text;
-   enum Filters filter;
+   std::string text;
+   Filters filter;
 } ScrawlData;
 
 
@@ -187,45 +188,34 @@ static const VSFrameRef *VS_CC scrawlGetFrame(int n, int activationReason, void 
       VSFrameRef *dst = vsapi->copyFrame(src, core);
 
       if (d->filter == FILTER_FRAMENUM) {
-         char *text = malloc(20);
-         sprintf(text, "%d", n);
-         scrawl_text(text, dst, vsapi);
-         free(text);
+         scrawl_text(std::to_string(n).c_str(), dst, vsapi);
       } else if (d->filter == FILTER_FRAMEPROPS) {
          const VSMap *props = vsapi->getFramePropsRO(src);
          int numKeys = vsapi->propNumKeys(props);
          int i;
-         char *text = malloc(numKeys * 1024);
-         sprintf(text, "%s\n", "Frame properties:");
+         std::string text = "Frame properties:\n";
 
          for (i = 0; i < numKeys; i++) {
             const char *key = vsapi->propGetKey(props, i);
             char type = vsapi->propGetType(props, key);
             int numElements = vsapi->propNumElements(props, key);
             int idx;
-            // Buffer overruns only happen to other programs.
-            char *prop = malloc(1024);
-            strcpy(prop, key);
-            strcat(prop, ": ");
             // "<key>: <val0> <val1> <val2> ... <valn-1>"
+            text.append(key).append(": ");
             if (type == ptInt) {
                for (idx = 0; idx < numElements; idx++) {
-                  char tmp[25];
                   int64_t value = vsapi->propGetInt(props, key, idx, NULL);
-                  sprintf(tmp, "%ld", value);
-                  strcat(prop, tmp);
+                  text.append(std::to_string(value));
                   if (idx < numElements-1) {
-                     strcat(prop, " ");
+                     text.append(" ");
                   }
                }
             } else if (type == ptFloat) {
                for (idx = 0; idx < numElements; idx++) {
-                  char tmp[32]; // 25 + 6 decimal places + separator
                   double value = vsapi->propGetFloat(props, key, idx, NULL);
-                  sprintf(tmp, "%.6f", value);
-                  strcat(prop, tmp);
+                  text.append(std::to_string(value));
                   if (idx < numElements-1) {
-                     strcat(prop, " ");
+                     text.append(" ");
                   }
                }
             } else if (type == ptData) {
@@ -233,26 +223,22 @@ static const VSFrameRef *VS_CC scrawlGetFrame(int n, int activationReason, void 
                   const char *value = vsapi->propGetData(props, key, idx, NULL);
                   int size = vsapi->propGetDataSize(props, key, idx, NULL);
                   if (size > 100) {
-                     strcat(prop, "<property too long>");
+                     text.append("<property too long>");
                   } else {
-                     // pretend it's a C "string" even though it may not be.
-                     strncat(prop, value, size);
+                     text.append(value);
                   }
                   if (idx < numElements-1) {
-                     strcat(prop, " ");
+                     text.append(" ");
                   }
                }
             }
 
-            strcat(text, prop);
-            strcat(text, "\n");
-            free(prop);
+            text.append("\n");
          }
 
-         scrawl_text(text, dst, vsapi);
-         free(text);
+         scrawl_text(text.c_str(), dst, vsapi);
       } else {
-         scrawl_text(d->text, dst, vsapi);
+         scrawl_text(d->text.c_str(), dst, vsapi);
       }
 
       vsapi->freeFrame(src);
@@ -266,10 +252,6 @@ static const VSFrameRef *VS_CC scrawlGetFrame(int n, int activationReason, void 
 
 static void VS_CC scrawlFree(void *instanceData, VSCore *core, const VSAPI *vsapi) {
    ScrawlData *d = (ScrawlData *)instanceData;
-
-   if (d->filter == FILTER_CLIPINFO || d->filter == FILTER_COREINFO) {
-      free(d->text);
-   }
 
    vsapi->freeNode(d->node);
    free(d);
@@ -285,9 +267,9 @@ static void VS_CC textCreate(const VSMap *in, VSMap *out, void *userData, VSCore
 
    d.filter = FILTER_TEXT;
 
-   d.text = (char *)vsapi->propGetData(in, "text", 0, 0);
+   d.text = vsapi->propGetData(in, "text", 0, 0);
 
-   data = malloc(sizeof(d));
+   data = new ScrawlData();
    *data = d;
 
    vsapi->createFilter(in, out, "Text", scrawlInit, scrawlGetFrame, scrawlFree, fmParallel, 0, data, core);
@@ -304,35 +286,25 @@ static void VS_CC clipinfoCreate(const VSMap *in, VSMap *out, void *userData, VS
 
    d.filter = FILTER_CLIPINFO;
 
-   d.text = malloc(1024);
    if (isConstantFormat(d.vi)) {
-      sprintf(d.text, "Clip info:\n"
-                      "Width:  %d px\n"
-                      "Height: %d px\n"
-                      "Length: %d frames\n"
-                      "FpsNum: %ld\n"
-                      "FpsDen: %ld\n"
-                      "Format: %s",
-                      d.vi->width,
-                      d.vi->height,
-                      d.vi->numFrames,
-                      d.vi->fpsNum,
-                      d.vi->fpsDen,
-                      d.vi->format->name);
+      d.text.append("Clip info:\n");
+      d.text.append("Width:  ").append(std::to_string(d.vi->width)).append(" px\n");
+      d.text.append("Height: ").append(std::to_string(d.vi->height)).append(" px\n");
+      d.text.append("Length: ").append(std::to_string(d.vi->numFrames)).append(" px\n");
+      d.text.append("FpsNum: ").append(std::to_string(d.vi->fpsNum)).append("\n");
+      d.text.append("FpsDen: ").append(std::to_string(d.vi->fpsDen)).append("\n");
+      d.text.append("Format: ").append(d.vi->format->name);
    } else {
-      sprintf(d.text, "Clip info:\n"
-                      "Width:  may vary\n"
-                      "Height: may vary\n"
-                      "Length: %d frames\n"
-                      "FpsNum: %ld\n"
-                      "FpsDen: %ld\n"
-                      "Format: may vary",
-                      d.vi->numFrames,
-                      d.vi->fpsNum,
-                      d.vi->fpsDen);
+      d.text.append("Clip info:\n");
+      d.text.append("Width:  may vary\n");
+      d.text.append("Height: may vary\n");
+      d.text.append("Length: ").append(std::to_string(d.vi->numFrames)).append(" px\n");
+      d.text.append("FpsNum: ").append(std::to_string(d.vi->fpsNum)).append("\n");
+      d.text.append("FpsDen: ").append(std::to_string(d.vi->fpsDen)).append("\n");
+      d.text.append("Format: may vary");
    }
 
-   data = malloc(sizeof(d));
+   data = new ScrawlData();
    *data = d;
 
    vsapi->createFilter(in, out, "ClipInfo", scrawlInit, scrawlGetFrame, scrawlFree, fmParallel, 0, data, core);
@@ -351,17 +323,12 @@ static void VS_CC coreinfoCreate(const VSMap *in, VSMap *out, void *userData, VS
 
    d.filter = FILTER_COREINFO;
 
-   d.text = malloc(1024);
-   sprintf(d.text, "%s\n"
-                   "Threads: %d\n"
-                   "Maximum framebuffer size: %ld bytes\n"
-                   "Used framebuffer size: %ld bytes",
-                   ci->versionString,
-                   ci->numThreads,
-                   ci->maxFramebufferSize,
-                   ci->usedFramebufferSize);
+   d.text.append(ci->versionString).append("\n");
+   d.text.append("Threads: ").append(std::to_string(ci->numThreads)).append("\n");
+   d.text.append("Maximum framebuffer cache size: ").append(std::to_string(ci->maxFramebufferSize)).append(" bytes\n");
+   d.text.append("Used ramebuffer cache size: ").append(std::to_string(ci->usedFramebufferSize)).append(" bytes");
 
-   data = malloc(sizeof(d));
+   data = new ScrawlData();
    *data = d;
 
    vsapi->createFilter(in, out, "CoreInfo", scrawlInit, scrawlGetFrame, scrawlFree, fmParallel, 0, data, core);
@@ -378,7 +345,7 @@ static void VS_CC framenumCreate(const VSMap *in, VSMap *out, void *userData, VS
 
    d.filter = FILTER_FRAMENUM;
 
-   data = malloc(sizeof(d));
+   data = new ScrawlData();
    *data = d;
 
    vsapi->createFilter(in, out, "FrameNum", scrawlInit, scrawlGetFrame, scrawlFree, fmParallel, 0, data, core);
@@ -395,7 +362,7 @@ static void VS_CC framepropsCreate(const VSMap *in, VSMap *out, void *userData, 
 
    d.filter = FILTER_FRAMEPROPS;
 
-   data = malloc(sizeof(d));
+   data = new ScrawlData();
    *data = d;
 
    vsapi->createFilter(in, out, "FrameProps", scrawlInit, scrawlGetFrame, scrawlFree, fmParallel, 0, data, core);
