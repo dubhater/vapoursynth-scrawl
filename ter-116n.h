@@ -1,6 +1,12 @@
 #ifndef TER_116N_H
 #define TER_116N_H
 
+/*
+ * This font contains only 251 characters.
+ * 129, 141, 143, 144, and 157 are not present in the array.
+ * One must account for this when reading a character.
+ */
+
 
 const int character_width = 8;
 const int character_height = 16;

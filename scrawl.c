@@ -92,8 +92,25 @@ void scrawl_text(const char *text, VSFrameRef *frame, const VSAPI *vsapi) {
          return;
       }
 
-      if (txt[i] < 32) {
+      // Must adjust the character code because of the five characters
+      // missing from the font.
+      if (txt[i] < 32 ||
+          txt[i] == 129 ||
+          txt[i] == 141 ||
+          txt[i] == 143 ||
+          txt[i] == 144 ||
+          txt[i] == 157) {
          txt[i] = '_';
+      }
+
+      if (txt[i] > 157) {
+         txt[i] -= 5;
+      } else if (txt[i] > 144) {
+         txt[i] -= 4;
+      } else if (txt[i] > 141) {
+         txt[i] -= 2;
+      } else if (txt[i] > 129) {
+         txt[i] -= 1;
       }
       
 
