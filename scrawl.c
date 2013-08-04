@@ -232,8 +232,12 @@ static const VSFrameRef *VS_CC scrawlGetFrame(int n, int activationReason, void 
                for (idx = 0; idx < numElements; idx++) {
                   const char *value = vsapi->propGetData(props, key, idx, NULL);
                   int size = vsapi->propGetDataSize(props, key, idx, NULL);
-                  // pretend it's a C "string" even though it may not be.
-                  strncat(prop, value, size);
+                  if (size > 100) {
+                     strcat(prop, "<property too long>");
+                  } else {
+                     // pretend it's a C "string" even though it may not be.
+                     strncat(prop, value, size);
+                  }
                   if (idx < numElements-1) {
                      strcat(prop, " ");
                   }
