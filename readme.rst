@@ -46,7 +46,9 @@ This plugin requires some features of C++11: std::to_string() and std::next().
 
 ::
 
-   g++ -O3 -std=c++11 -Wall -Wextra -Wno-unused-parameter -fPIC -shared -o libscrawl.so scrawl.cpp
+   ./autogen.sh
+   ./configure
+   make
 
 
 Licenses
