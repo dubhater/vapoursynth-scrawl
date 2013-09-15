@@ -138,8 +138,8 @@ void scrawl_text(std::string txt, int alignment, VSFrameRef *frame, const VSAPI 
 
    std::list<std::string> lines = split_text(txt, width - margin_h*2, height - margin_v*2);
 
-   int start_x;
-   int start_y;
+   int start_x = 0;
+   int start_y = 0;
 
    switch (alignment) {
       case 7:
