@@ -5,8 +5,8 @@
 #include <list>
 #include <string>
 
-#include <vapoursynth/VapourSynth.h>
-#include <vapoursynth/VSHelper.h>
+#include <VapourSynth.h>
+#include <VSHelper.h>
 
 #include "ter-116n.h"
 
