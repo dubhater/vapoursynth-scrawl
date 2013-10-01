@@ -31,6 +31,16 @@ AC_PROG_CXX
 
 AC_CXX_FLAG([-std=c++11])
 
+AC_CANONICAL_HOST
+
+AS_CASE(
+   [$host_cpu], [i?86],
+   [AS_CASE(
+      [$host_os], [cygwin*|mingw*],
+      [LDFLAGS="-Wl,--kill-at"]
+   )]
+)
+
 PKG_CHECK_MODULES([VapourSynth], [vapoursynth])
 
 AC_CONFIG_FILES([Makefile])
