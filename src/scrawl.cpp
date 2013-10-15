@@ -357,23 +357,74 @@ static void VS_CC scrawlCreate(const VSMap *in, VSMap *out, void *userData, VSCo
          instanceName = "Text";
          break;
       case FILTER_CLIPINFO:
-         if (isConstantFormat(d.vi)) {
-            d.text.append("Clip info:\n");
+         d.text.append("Clip info:\n");
+
+         if (d.vi->width) {
             d.text.append("Width: ").append(std::to_string(d.vi->width)).append(" px\n");
             d.text.append("Height: ").append(std::to_string(d.vi->height)).append(" px\n");
-            d.text.append("Length: ").append(std::to_string(d.vi->numFrames)).append(" px\n");
-            d.text.append("FpsNum: ").append(std::to_string(d.vi->fpsNum)).append("\n");
-            d.text.append("FpsDen: ").append(std::to_string(d.vi->fpsDen)).append("\n");
-            d.text.append("Format: ").append(d.vi->format->name);
          } else {
-            d.text.append("Clip info:\n");
             d.text.append("Width: may vary\n");
             d.text.append("Height: may vary\n");
-            d.text.append("Length: ").append(std::to_string(d.vi->numFrames)).append(" px\n");
-            d.text.append("FpsNum: ").append(std::to_string(d.vi->fpsNum)).append("\n");
-            d.text.append("FpsDen: ").append(std::to_string(d.vi->fpsDen)).append("\n");
-            d.text.append("Format: may vary");
          }
+
+         if (d.vi->numFrames) {
+            d.text.append("Length: ").append(std::to_string(d.vi->numFrames)).append(" frames\n");
+         } else {
+            d.text.append("Length: unknown\n");
+         }
+
+         if (d.vi->format) {
+            const VSFormat *fi = d.vi->format;
+            const char *family;
+            switch (fi->colorFamily) {
+               case cmGray:
+                  family = "Gray";
+                  break;
+               case cmRGB:
+                  family = "RGB";
+                  break;
+               case cmYUV:
+                  family = "YUV";
+                  break;
+               case cmYCoCg:
+                  family = "YCoCg";
+                  break;
+               case cmCompat:
+                  family = "Compat";
+                  break;
+               default:
+                  family = "impossible";
+                  break;
+            }
+
+            const char *type;
+            switch (fi->sampleType) {
+               case stInteger:
+                  type = "integer";
+                  break;
+               case stFloat:
+                  type = "float";
+                  break;
+               default:
+                  type = "impossible";
+                  break;
+            }
+
+            d.text.append("Format name: ").append(fi->name).append("\n");
+            d.text.append("Format id: ").append(std::to_string(fi->id)).append("\n");
+            d.text.append("Color family: ").append(family).append("\n");
+            d.text.append("Sample type: ").append(type).append("\n");
+            d.text.append("Bits per sample: ").append(std::to_string(fi->bitsPerSample)).append("\n");
+            d.text.append("Bytes per sample: ").append(std::to_string(fi->bytesPerSample)).append("\n");
+            d.text.append("Horizontal subsampling: ").append(std::to_string(fi->subSamplingW)).append("\n");
+            d.text.append("Vertical subsampling: ").append(std::to_string(fi->subSamplingH)).append("\n");
+            d.text.append("Number of planes: ").append(std::to_string(fi->numPlanes)).append("\n");
+         } else {
+            d.text.append("Format: may vary").append("\n");
+         }
+
+         d.text.append("FpsNum: ").append(std::to_string(d.vi->fpsNum)).append("\n");
+         d.text.append("FpsDen: ").append(std::to_string(d.vi->fpsDen));
 
          instanceName = "ClipInfo";
          break;
