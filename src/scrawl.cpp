@@ -332,7 +332,24 @@ static void VS_CC scrawlCreate(const VSMap *in, VSMap *out, void *userData, VSCo
    ScrawlData *data;
    int err;
 
-   d.node = vsapi->propGetNode(in, "clip", 0, 0);
+   d.node = vsapi->propGetNode(in, "clip", 0, &err);
+   if (err) {
+      // Can only happen for CoreInfo.
+      VSMap *args = vsapi->createMap();
+      VSPlugin *stdPlugin = vsapi->getPluginByNs("std", core);
+      VSMap *ret = vsapi->invoke(stdPlugin, "BlankClip", args);
+      vsapi->freeMap(args);
+      const char *error = vsapi->getError(ret);
+      if (error) {
+         std::string msg = "CoreInfo: No input clip was given and invoking BlankClip failed. The error message from BlankClip is:\n";
+         msg.append(error);
+         vsapi->setError(out, msg.c_str());
+         vsapi->freeMap(ret);
+         return;
+      }
+      d.node = vsapi->propGetNode(ret, "clip", 0, 0);
+      vsapi->freeMap(ret);
+   }
    d.vi = vsapi->getVideoInfo(d.node);
 
    d.alignment = vsapi->propGetInt(in, "alignment", 0, &err);
@@ -467,7 +484,7 @@ VS_EXTERNAL_API(void) VapourSynthPluginInit(VSConfigPlugin configFunc, VSRegiste
                 "alignment:int:opt;",
                 scrawlCreate, (void *)FILTER_CLIPINFO, plugin);
    registerFunc("CoreInfo",
-                "clip:clip;"
+                "clip:clip:opt;"
                 "alignment:int:opt;",
                 scrawlCreate, (void *)FILTER_COREINFO, plugin);
    registerFunc("FrameNum",
