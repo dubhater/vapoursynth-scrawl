@@ -301,6 +301,12 @@ static const VSFrameRef *VS_CC scrawlGetFrame(int n, int activationReason, void 
       VSFrameRef *dst = vsapi->copyFrame(src, core);
       vsapi->freeFrame(src);
 
+      const VSFormat *frame_format = vsapi->getFrameFormat(dst);
+      if (frame_format->sampleType == stFloat || frame_format->bitsPerSample > 16) {
+         vsapi->setFilterError("Scrawl: Only integer sample type with up to 16 bits per sample supported", frameCtx);
+         return NULL;
+      }
+
       if (d->filter == FILTER_FRAMENUM) {
          scrawl_text(std::to_string(n), d->alignment, dst, vsapi);
       } else if (d->filter == FILTER_FRAMEPROPS) {
@@ -371,6 +377,12 @@ static void VS_CC scrawlCreate(const VSMap *in, VSMap *out, void *userData, VSCo
       vsapi->freeMap(ret);
    }
    d.vi = vsapi->getVideoInfo(d.node);
+
+   if (d.vi->format && (d.vi->format->sampleType == stFloat || d.vi->format->bitsPerSample > 16)) {
+      vsapi->setError(out, "Scrawl: Only integer sample type with up to 16 bits per sample supported");
+      vsapi->freeNode(d.node);
+      return;
+   }
 
    d.alignment = vsapi->propGetInt(in, "alignment", 0, &err);
    if (err) {
