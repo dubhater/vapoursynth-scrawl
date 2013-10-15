@@ -53,12 +53,12 @@ static inline void vs_memset16(void *ptr, int value, size_t num) {
 void sanitise_text(std::string& txt) {
    for (int i = 0; txt[i]; i++) {
       if (txt[i] == '\r') {
-        if (txt[i+1] == '\n') {
-           txt.erase(i, 1);
-        } else {
-           txt[i] = '\n';
-        }
-        continue;
+         if (txt[i+1] == '\n') {
+            txt.erase(i, 1);
+         } else {
+            txt[i] = '\n';
+         }
+         continue;
       }
 
       if (txt[i] == '\n') {
