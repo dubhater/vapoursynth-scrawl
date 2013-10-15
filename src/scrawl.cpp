@@ -11,7 +11,7 @@
 #include "ter-116n.h"
 
 
-void scrawl_character(unsigned char c, uint8_t *image, int stride, int dest_x, int dest_y, int bitsPerSample) {
+void scrawl_character_int(unsigned char c, uint8_t *image, int stride, int dest_x, int dest_y, int bitsPerSample) {
    int black = 16 << (bitsPerSample - 8);
    int white = 235 << (bitsPerSample - 8);
    int x, y;
@@ -43,10 +43,36 @@ void scrawl_character(unsigned char c, uint8_t *image, int stride, int dest_x, i
 }
 
 
+void scrawl_character_float(unsigned char c, uint8_t *image, int stride, int dest_x, int dest_y) {
+   float white = 1.0f;
+   float black = 0.0f;
+   int x, y;
+
+   for (y = 0; y < character_height; y++) {
+      for (x = 0; x < character_width; x++) {
+         if (__font_bitmap__[c * character_height + y] & (1 << (7 - x))) {
+            ((float*)image)[dest_y*stride/4 + dest_x + x] = white;
+         } else {
+            ((float*)image)[dest_y*stride/4 + dest_x + x] = black;
+         }
+      }
+
+      dest_y++;
+   }
+}
+
+
 static inline void vs_memset16(void *ptr, int value, size_t num) {
 	uint16_t *tptr = (uint16_t *)ptr;
 	while (num-- > 0)
 		*tptr++ = (uint16_t)value;
+}
+
+
+static inline void vs_memset_float(void *ptr, float value, size_t num) {
+	float *tptr = (float *)ptr;
+	while (num-- > 0)
+		*tptr++ = value;
 }
 
 
@@ -188,7 +214,11 @@ void scrawl_text(std::string txt, int alignment, VSFrameRef *frame, const VSAPI 
                uint8_t *image = vsapi->getWritePtr(frame, plane);
                int stride = vsapi->getStride(frame, plane);
 
-               scrawl_character((*iter)[i], image, stride, dest_x, dest_y, frame_format->bitsPerSample);
+               if (frame_format->sampleType == stInteger) {
+                  scrawl_character_int((*iter)[i], image, stride, dest_x, dest_y, frame_format->bitsPerSample);
+               } else {
+                  scrawl_character_float((*iter)[i], image, stride, dest_x, dest_y);
+               }
             }
          } else {
             for (int plane = 0; plane < frame_format->numPlanes; plane++) {
@@ -196,7 +226,11 @@ void scrawl_text(std::string txt, int alignment, VSFrameRef *frame, const VSAPI 
                int stride = vsapi->getStride(frame, plane);
 
                if (plane == 0) {
-                  scrawl_character((*iter)[i], image, stride, dest_x, dest_y, frame_format->bitsPerSample);
+                  if (frame_format->sampleType == stInteger) {
+                     scrawl_character_int((*iter)[i], image, stride, dest_x, dest_y, frame_format->bitsPerSample);
+                  } else {
+                     scrawl_character_float((*iter)[i], image, stride, dest_x, dest_y);
+                  }
                } else {
                   int sub_w = character_width  >> frame_format->subSamplingW;
                   int sub_h = character_height >> frame_format->subSamplingH;
@@ -208,9 +242,13 @@ void scrawl_text(std::string txt, int alignment, VSFrameRef *frame, const VSAPI 
                      for (y = 0; y < sub_h; y++) {
                         memset(image + (y+sub_dest_y)*stride + sub_dest_x, 128, sub_w);
                      }
-                  } else {
+                  } else if (frame_format->bitsPerSample <= 16) {
                      for (y = 0; y < sub_h; y++) {
                         vs_memset16((uint16_t*)image + (y+sub_dest_y)*stride/2 + sub_dest_x, 128 << (frame_format->bitsPerSample - 8), sub_w);
+                     }
+                  } else {
+                     for (y = 0; y < sub_h; y++) {
+                        vs_memset_float((float*)image + (y+sub_dest_y)*stride/4 + sub_dest_x, 0.0f, sub_w);
                      }
                   }
                } // if plane
@@ -302,8 +340,8 @@ static const VSFrameRef *VS_CC scrawlGetFrame(int n, int activationReason, void 
       vsapi->freeFrame(src);
 
       const VSFormat *frame_format = vsapi->getFrameFormat(dst);
-      if (frame_format->sampleType == stFloat || frame_format->bitsPerSample > 16) {
-         vsapi->setFilterError("Scrawl: Only integer sample type with up to 16 bits per sample supported", frameCtx);
+      if (frame_format->sampleType != stFloat && frame_format->bitsPerSample > 16) {
+         vsapi->setFilterError("Scrawl: Integer sample type with more than 16 bits per sample not supported", frameCtx);
          return NULL;
       }
 
@@ -378,8 +416,8 @@ static void VS_CC scrawlCreate(const VSMap *in, VSMap *out, void *userData, VSCo
    }
    d.vi = vsapi->getVideoInfo(d.node);
 
-   if (d.vi->format && (d.vi->format->sampleType == stFloat || d.vi->format->bitsPerSample > 16)) {
-      vsapi->setError(out, "Scrawl: Only integer sample type with up to 16 bits per sample supported");
+   if (d.vi->format && d.vi->format->sampleType != stFloat && d.vi->format->bitsPerSample > 16) {
+      vsapi->setError(out, "Scrawl: Integer sample type with more than 16 bits per sample not supported");
       vsapi->freeNode(d.node);
       return;
    }
