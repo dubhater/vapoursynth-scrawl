@@ -238,12 +238,56 @@ typedef struct {
    std::string text;
    int alignment;
    intptr_t filter;
+   char **props;
 } ScrawlData;
 
 
 static void VS_CC scrawlInit(VSMap *in, VSMap *out, void **instanceData, VSNode *node, VSCore *core, const VSAPI *vsapi) {
    ScrawlData *d = (ScrawlData *) * instanceData;
    vsapi->setVideoInfo(d->vi, 1, node);
+}
+
+
+static void append_prop(std::string &text, const char *key, const VSMap *map, const VSAPI *vsapi) {
+   char type = vsapi->propGetType(map, key);
+   int numElements = vsapi->propNumElements(map, key);
+   int idx;
+   // "<key>: <val0> <val1> <val2> ... <valn-1>"
+   text.append(key).append(": ");
+   if (type == ptInt) {
+      for (idx = 0; idx < numElements; idx++) {
+         int64_t value = vsapi->propGetInt(map, key, idx, NULL);
+         text.append(std::to_string(value));
+         if (idx < numElements-1) {
+            text.append(" ");
+         }
+      }
+   } else if (type == ptFloat) {
+      for (idx = 0; idx < numElements; idx++) {
+         double value = vsapi->propGetFloat(map, key, idx, NULL);
+         text.append(std::to_string(value));
+         if (idx < numElements-1) {
+            text.append(" ");
+         }
+      }
+   } else if (type == ptData) {
+      for (idx = 0; idx < numElements; idx++) {
+         const char *value = vsapi->propGetData(map, key, idx, NULL);
+         int size = vsapi->propGetDataSize(map, key, idx, NULL);
+         if (size > 100) {
+            text.append("<property too long>");
+         } else {
+            text.append(value);
+         }
+         if (idx < numElements-1) {
+            text.append(" ");
+         }
+      }
+   } else if (type == ptUnset) {
+      text.append("<no such property>");
+   }
+
+   text.append("\n");
 }
 
 
@@ -255,62 +299,31 @@ static const VSFrameRef *VS_CC scrawlGetFrame(int n, int activationReason, void 
    } else if (activationReason == arAllFramesReady) {
       const VSFrameRef *src = vsapi->getFrameFilter(n, d->node, frameCtx);
       VSFrameRef *dst = vsapi->copyFrame(src, core);
+      vsapi->freeFrame(src);
 
       if (d->filter == FILTER_FRAMENUM) {
          scrawl_text(std::to_string(n), d->alignment, dst, vsapi);
       } else if (d->filter == FILTER_FRAMEPROPS) {
-         const VSMap *props = vsapi->getFramePropsRO(src);
+         const VSMap *props = vsapi->getFramePropsRO(dst);
          int numKeys = vsapi->propNumKeys(props);
          int i;
          std::string text = "Frame properties:\n";
 
-         for (i = 0; i < numKeys; i++) {
-            const char *key = vsapi->propGetKey(props, i);
-            char type = vsapi->propGetType(props, key);
-            int numElements = vsapi->propNumElements(props, key);
-            int idx;
-            // "<key>: <val0> <val1> <val2> ... <valn-1>"
-            text.append(key).append(": ");
-            if (type == ptInt) {
-               for (idx = 0; idx < numElements; idx++) {
-                  int64_t value = vsapi->propGetInt(props, key, idx, NULL);
-                  text.append(std::to_string(value));
-                  if (idx < numElements-1) {
-                     text.append(" ");
-                  }
-               }
-            } else if (type == ptFloat) {
-               for (idx = 0; idx < numElements; idx++) {
-                  double value = vsapi->propGetFloat(props, key, idx, NULL);
-                  text.append(std::to_string(value));
-                  if (idx < numElements-1) {
-                     text.append(" ");
-                  }
-               }
-            } else if (type == ptData) {
-               for (idx = 0; idx < numElements; idx++) {
-                  const char *value = vsapi->propGetData(props, key, idx, NULL);
-                  int size = vsapi->propGetDataSize(props, key, idx, NULL);
-                  if (size > 100) {
-                     text.append("<property too long>");
-                  } else {
-                     text.append(value);
-                  }
-                  if (idx < numElements-1) {
-                     text.append(" ");
-                  }
-               }
+         if (d->props) {
+            for (i = 0; d->props[i]; i++) {
+               append_prop(text, d->props[i], props, vsapi);
             }
-
-            text.append("\n");
+         } else {
+            for (i = 0; i < numKeys; i++) {
+               const char *key = vsapi->propGetKey(props, i);
+               append_prop(text, key, props, vsapi);
+            }
          }
 
          scrawl_text(text, d->alignment, dst, vsapi);
       } else {
          scrawl_text(d->text, d->alignment, dst, vsapi);
       }
-
-      vsapi->freeFrame(src);
 
       return dst;
    }
@@ -321,6 +334,13 @@ static const VSFrameRef *VS_CC scrawlGetFrame(int n, int activationReason, void 
 
 static void VS_CC scrawlFree(void *instanceData, VSCore *core, const VSAPI *vsapi) {
    ScrawlData *d = (ScrawlData *)instanceData;
+
+   if (d->props) {
+      for (int i = 0; d->props[i]; i++) {
+         free(d->props[i]);
+      }
+      free(d->props);
+   }
 
    vsapi->freeNode(d->node);
    free(d);
@@ -461,6 +481,18 @@ static void VS_CC scrawlCreate(const VSMap *in, VSMap *out, void *userData, VSCo
          instanceName = "FrameNum";
          break;
       case FILTER_FRAMEPROPS:
+         int numProps = vsapi->propNumElements(in, "props");
+         if (numProps > 0) {
+            d.props = (char **)malloc((numProps+1) * sizeof(char *));
+            for (int i = 0; i < numProps; i++) {
+               d.props[i] = (char *)malloc(vsapi->propGetDataSize(in, "props", i, 0) + 1);
+               strcpy(d.props[i], vsapi->propGetData(in, "props", i, 0));
+            }
+            d.props[numProps] = NULL;
+         } else {
+            d.props = NULL;
+         }
+
          instanceName = "FrameProps";
          break;
    }
@@ -493,6 +525,7 @@ VS_EXTERNAL_API(void) VapourSynthPluginInit(VSConfigPlugin configFunc, VSRegiste
                 scrawlCreate, (void *)FILTER_FRAMENUM, plugin);
    registerFunc("FrameProps",
                 "clip:clip;"
+                "props:data[]:opt;"
                 "alignment:int:opt;",
                 scrawlCreate, (void *)FILTER_FRAMEPROPS, plugin);
 }
