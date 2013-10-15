@@ -237,7 +237,7 @@ typedef struct {
 
    std::string text;
    int alignment;
-   Filters filter;
+   intptr_t filter;
 } ScrawlData;
 
 
@@ -327,175 +327,80 @@ static void VS_CC scrawlFree(void *instanceData, VSCore *core, const VSAPI *vsap
 }
 
 
-static void VS_CC textCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, const VSAPI *vsapi) {
+static void VS_CC scrawlCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, const VSAPI *vsapi) {
    ScrawlData d;
    ScrawlData *data;
+   int err;
 
    d.node = vsapi->propGetNode(in, "clip", 0, 0);
    d.vi = vsapi->getVideoInfo(d.node);
 
-   d.filter = FILTER_TEXT;
-
-   d.text = vsapi->propGetData(in, "text", 0, 0);
-
-   int err;
    d.alignment = vsapi->propGetInt(in, "alignment", 0, &err);
    if (err) {
       d.alignment = 7; // top left
    }
 
    if (d.alignment < 1 || d.alignment > 9) {
-      vsapi->setError(out, "Text: alignment must be between 1 and 9 (think numpad)");
+      vsapi->setError(out, "Scrawl: alignment must be between 1 and 9 (think numpad)");
       vsapi->freeNode(d.node);
       return;
+   }
+
+   d.filter = (intptr_t)userData;
+
+   const char *instanceName = "shut up gcc";
+
+   switch (d.filter) {
+      case FILTER_TEXT:
+         d.text = vsapi->propGetData(in, "text", 0, 0);
+
+         instanceName = "Text";
+         break;
+      case FILTER_CLIPINFO:
+         if (isConstantFormat(d.vi)) {
+            d.text.append("Clip info:\n");
+            d.text.append("Width: ").append(std::to_string(d.vi->width)).append(" px\n");
+            d.text.append("Height: ").append(std::to_string(d.vi->height)).append(" px\n");
+            d.text.append("Length: ").append(std::to_string(d.vi->numFrames)).append(" px\n");
+            d.text.append("FpsNum: ").append(std::to_string(d.vi->fpsNum)).append("\n");
+            d.text.append("FpsDen: ").append(std::to_string(d.vi->fpsDen)).append("\n");
+            d.text.append("Format: ").append(d.vi->format->name);
+         } else {
+            d.text.append("Clip info:\n");
+            d.text.append("Width: may vary\n");
+            d.text.append("Height: may vary\n");
+            d.text.append("Length: ").append(std::to_string(d.vi->numFrames)).append(" px\n");
+            d.text.append("FpsNum: ").append(std::to_string(d.vi->fpsNum)).append("\n");
+            d.text.append("FpsDen: ").append(std::to_string(d.vi->fpsDen)).append("\n");
+            d.text.append("Format: may vary");
+         }
+
+         instanceName = "ClipInfo";
+         break;
+      case FILTER_COREINFO:
+      {
+         const VSCoreInfo *ci = vsapi->getCoreInfo(core);
+
+         d.text.append(ci->versionString).append("\n");
+         d.text.append("Threads: ").append(std::to_string(ci->numThreads)).append("\n");
+         d.text.append("Maximum framebuffer cache size: ").append(std::to_string(ci->maxFramebufferSize)).append(" bytes\n");
+         d.text.append("Used framebuffer cache size: ").append(std::to_string(ci->usedFramebufferSize)).append(" bytes");
+
+         instanceName = "CoreInfo";
+         break;
+      }
+      case FILTER_FRAMENUM:
+         instanceName = "FrameNum";
+         break;
+      case FILTER_FRAMEPROPS:
+         instanceName = "FrameProps";
+         break;
    }
 
    data = new ScrawlData();
    *data = d;
 
-   vsapi->createFilter(in, out, "Text", scrawlInit, scrawlGetFrame, scrawlFree, fmParallel, 0, data, core);
-   return;
-}
-
-
-static void VS_CC clipinfoCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, const VSAPI *vsapi) {
-   ScrawlData d;
-   ScrawlData *data;
-
-   d.node = vsapi->propGetNode(in, "clip", 0, 0);
-   d.vi = vsapi->getVideoInfo(d.node);
-
-   d.filter = FILTER_CLIPINFO;
-
-   if (isConstantFormat(d.vi)) {
-      d.text.append("Clip info:\n");
-      d.text.append("Width: ").append(std::to_string(d.vi->width)).append(" px\n");
-      d.text.append("Height: ").append(std::to_string(d.vi->height)).append(" px\n");
-      d.text.append("Length: ").append(std::to_string(d.vi->numFrames)).append(" px\n");
-      d.text.append("FpsNum: ").append(std::to_string(d.vi->fpsNum)).append("\n");
-      d.text.append("FpsDen: ").append(std::to_string(d.vi->fpsDen)).append("\n");
-      d.text.append("Format: ").append(d.vi->format->name);
-   } else {
-      d.text.append("Clip info:\n");
-      d.text.append("Width: may vary\n");
-      d.text.append("Height: may vary\n");
-      d.text.append("Length: ").append(std::to_string(d.vi->numFrames)).append(" px\n");
-      d.text.append("FpsNum: ").append(std::to_string(d.vi->fpsNum)).append("\n");
-      d.text.append("FpsDen: ").append(std::to_string(d.vi->fpsDen)).append("\n");
-      d.text.append("Format: may vary");
-   }
-
-   int err;
-   d.alignment = vsapi->propGetInt(in, "alignment", 0, &err);
-   if (err) {
-      d.alignment = 7; // top left
-   }
-
-   if (d.alignment < 1 || d.alignment > 9) {
-      vsapi->setError(out, "ClipInfo: alignment must be between 1 and 9 (think numpad)");
-      vsapi->freeNode(d.node);
-      return;
-   }
-
-   data = new ScrawlData();
-   *data = d;
-
-   vsapi->createFilter(in, out, "ClipInfo", scrawlInit, scrawlGetFrame, scrawlFree, fmParallel, 0, data, core);
-   return;
-}
-
-
-static void VS_CC coreinfoCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, const VSAPI *vsapi) {
-   ScrawlData d;
-   ScrawlData *data;
-
-   const VSCoreInfo *ci = vsapi->getCoreInfo(core);
-
-   d.node = vsapi->propGetNode(in, "clip", 0, 0);
-   d.vi = vsapi->getVideoInfo(d.node);
-
-   d.filter = FILTER_COREINFO;
-
-   d.text.append(ci->versionString).append("\n");
-   d.text.append("Threads: ").append(std::to_string(ci->numThreads)).append("\n");
-   d.text.append("Maximum framebuffer cache size: ").append(std::to_string(ci->maxFramebufferSize)).append(" bytes\n");
-   d.text.append("Used framebuffer cache size: ").append(std::to_string(ci->usedFramebufferSize)).append(" bytes");
-
-   int err;
-   d.alignment = vsapi->propGetInt(in, "alignment", 0, &err);
-   if (err) {
-      d.alignment = 7; // top left
-   }
-
-   if (d.alignment < 1 || d.alignment > 9) {
-      vsapi->setError(out, "CoreInfo: alignment must be between 1 and 9 (think numpad)");
-      vsapi->freeNode(d.node);
-      return;
-   }
-
-   data = new ScrawlData();
-   *data = d;
-
-   vsapi->createFilter(in, out, "CoreInfo", scrawlInit, scrawlGetFrame, scrawlFree, fmParallel, 0, data, core);
-   return;
-}
-
-
-static void VS_CC framenumCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, const VSAPI *vsapi) {
-   ScrawlData d;
-   ScrawlData *data;
-
-   d.node = vsapi->propGetNode(in, "clip", 0, 0);
-   d.vi = vsapi->getVideoInfo(d.node);
-
-   d.filter = FILTER_FRAMENUM;
-
-   int err;
-   d.alignment = vsapi->propGetInt(in, "alignment", 0, &err);
-   if (err) {
-      d.alignment = 7; // top left
-   }
-
-   if (d.alignment < 1 || d.alignment > 9) {
-      vsapi->setError(out, "FrameNum: alignment must be between 1 and 9 (think numpad)");
-      vsapi->freeNode(d.node);
-      return;
-   }
-
-   data = new ScrawlData();
-   *data = d;
-
-   vsapi->createFilter(in, out, "FrameNum", scrawlInit, scrawlGetFrame, scrawlFree, fmParallel, 0, data, core);
-   return;
-}
-
-
-static void VS_CC framepropsCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, const VSAPI *vsapi) {
-   ScrawlData d;
-   ScrawlData *data;
-
-   d.node = vsapi->propGetNode(in, "clip", 0, 0);
-   d.vi = vsapi->getVideoInfo(d.node);
-
-   d.filter = FILTER_FRAMEPROPS;
-
-   int err;
-   d.alignment = vsapi->propGetInt(in, "alignment", 0, &err);
-   if (err) {
-      d.alignment = 7; // top left
-   }
-
-   if (d.alignment < 1 || d.alignment > 9) {
-      vsapi->setError(out, "FrameProps: alignment must be between 1 and 9 (think numpad)");
-      vsapi->freeNode(d.node);
-      return;
-   }
-
-   data = new ScrawlData();
-   *data = d;
-
-   vsapi->createFilter(in, out, "FrameProps", scrawlInit, scrawlGetFrame, scrawlFree, fmParallel, 0, data, core);
-   return;
+   vsapi->createFilter(in, out, instanceName, scrawlInit, scrawlGetFrame, scrawlFree, fmParallel, 0, data, core);
 }
 
 
@@ -505,21 +410,21 @@ VS_EXTERNAL_API(void) VapourSynthPluginInit(VSConfigPlugin configFunc, VSRegiste
                 "clip:clip;"
                 "text:data;"
                 "alignment:int:opt;",
-                textCreate, 0, plugin);
+                scrawlCreate, (void *)FILTER_TEXT, plugin);
    registerFunc("ClipInfo",
                 "clip:clip;"
                 "alignment:int:opt;",
-                clipinfoCreate, 0, plugin);
+                scrawlCreate, (void *)FILTER_CLIPINFO, plugin);
    registerFunc("CoreInfo",
                 "clip:clip;"
                 "alignment:int:opt;",
-                coreinfoCreate, 0, plugin);
+                scrawlCreate, (void *)FILTER_COREINFO, plugin);
    registerFunc("FrameNum",
                 "clip:clip;"
                 "alignment:int:opt;",
-                framenumCreate, 0, plugin);
+                scrawlCreate, (void *)FILTER_FRAMENUM, plugin);
    registerFunc("FrameProps",
                 "clip:clip;"
                 "alignment:int:opt;",
-                framepropsCreate, 0, plugin);
+                scrawlCreate, (void *)FILTER_FRAMEPROPS, plugin);
 }
