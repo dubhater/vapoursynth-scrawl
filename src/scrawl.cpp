@@ -341,7 +341,7 @@ static const VSFrameRef *VS_CC scrawlGetFrame(int n, int activationReason, void 
 
       const VSFormat *frame_format = vsapi->getFrameFormat(dst);
       if ((frame_format->sampleType == stInteger && frame_format->bitsPerSample > 16) ||
-          (frame_format->sampleType == stFloat && frame_format->bitsPerSample == 16)) {
+          (frame_format->sampleType == stFloat && frame_format->bitsPerSample != 32)) {
          vsapi->setFilterError("Scrawl: Only 8..16 bit integer and 32 bit float formats supported", frameCtx);
          return NULL;
       }
@@ -418,7 +418,7 @@ static void VS_CC scrawlCreate(const VSMap *in, VSMap *out, void *userData, VSCo
    d.vi = vsapi->getVideoInfo(d.node);
 
    if (d.vi->format && ((d.vi->format->sampleType == stInteger && d.vi->format->bitsPerSample > 16) ||
-                        (d.vi->format->sampleType == stFloat && d.vi->format->bitsPerSample == 16))) {
+                        (d.vi->format->sampleType == stFloat && d.vi->format->bitsPerSample != 32))) {
       vsapi->setError(out, "Scrawl: Only 8..16 bit integer and 32 bit float formats supported");
       vsapi->freeNode(d.node);
       return;
