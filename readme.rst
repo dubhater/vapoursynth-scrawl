@@ -21,7 +21,7 @@ Draws information about the clip.
 
 ::
 
-   scrawl.CoreInfo(clip clip[, int alignment=7])
+   scrawl.CoreInfo([clip clip=std.BlankClip(), int alignment=7])
 
 Draws information about the VapourSynth core.
 
@@ -33,9 +33,9 @@ Draws the frame number on every frame.
 
 ::
 
-   scrawl.FrameProps(clip clip[, int alignment=7])
+   scrawl.FrameProps(clip clip[, string props=[], int alignment=7])
 
-Draws the properties attached to the frames.
+Draws all the properties attached to the frames, or just those passed in the *props* array.
 
 The *alignment* parameter takes a number from 1 to 9, corresponding to the positions of the keys on a numpad.
 
